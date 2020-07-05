@@ -8,6 +8,10 @@ verify_ssl = true
 [packages]
 numpy = "*"
 gpio = "*"
+pyinstaller = "*"
+pyaudio = "*"
+"rpi.gpio" = "*"
+paramiko = "*"
 
 [requires]
 python_version = "3.7"
