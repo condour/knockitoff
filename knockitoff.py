@@ -14,6 +14,10 @@
     note: with 2048 samples per chunk, I'm getting 20FPS
     when also running the spectrum, its about 15FPS
 """
+from PCF8574 import PCF8574_GPIO
+from Adafruit_LCD1602 import Adafruit_CharLCD
+
+
 #import matplotlib.pyplot as plt
 import numpy as np
 import pyaudio
@@ -29,6 +33,7 @@ import time
 from collections import deque
 import os
 import paramiko
+
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -82,6 +87,9 @@ def setup():
     GPIO.setup(redPin, GPIO.OUT)
     GPIO.setup(greenPin, GPIO.OUT)
     GPIO.output(greenPin, GPIO.HIGH)
+    mcp.output(3,1)     # turn on LCD backlight
+    lcd.begin(16,2) 
+
     
 # stream constants
 CHUNK = 1024 * 2
@@ -121,31 +129,38 @@ def scale(val, src, dst):
     return ((val - src[0]) / (src[1]-src[0])) * (dst[1]-dst[0]) + dst[0]
 
 def loop():
+
     mad = 0
     global inTimeout, timeoutStart
     q = deque(maxlen = 30)
+    state = "";
     while True:
+        lastState = state
         data = stream.read(CHUNK, exception_on_overflow = False)
-        #data_np = struct.unpack(str(2 * CHUNK) + 'B', data)
         dec = decibel(rms(data))
-        whichBar = max(min(int(round(scale(dec, [-70, -30],[7,0]))),7),0)
-        q.appendleft(7 - whichBar)
+        whichBar = max(min(int(round(scale(dec, [-70, -30],[8,0]))),8),0)
+        q.appendleft(8 - whichBar)
+        av = round(average(q)*2)
+
         if(average(q) > 5):
             GPIO.output(redPin, GPIO.HIGH)
             mad = mad + 1
-            print("mad" + str(mad))
+            state = "DANGER"
             if(mad > 50):
                 # GO TO FAIL STATE
-                print("MAD " + str(mad))
                 if(not inTimeout):
+                    state = "INTERNET OFF"
                     GPIO.output(greenPin, GPIO.LOW)
                     timeoutStart = time.time()
                     inTimeout = True
                     print("turning off")
                     turnInternet(False)
                     print("turned off")
+                else:
+                    state = "INTERNET OFF"
         else:
             if(mad <= 0):
+                state = "OK"
                 GPIO.output(redPin, GPIO.LOW)
             mad = max(0, mad - .25)
             if(inTimeout):
@@ -156,35 +171,60 @@ def loop():
                     GPIO.output(redPin, GPIO.LOW)
                 print(secondsTil)
             if(mad == 0 and inTimeout and time.time() - timeoutStart > 30):
+                state = "OK"
                 print("turning on")
                 turnInternet(True)
                 print("turned on")
                 GPIO.output(greenPin, GPIO.HIGH)
                 inTimeout = False
                 print("restored")
-
         GPIO.output(latchPin,GPIO.LOW)  # Output low level to latchPin
         shiftOut(dataPin,clockPin,LSBFIRST,0xFF << whichBar) # Send serial data to 74HC595
         GPIO.output(latchPin,GPIO.HIGH)
+        if(state != lastState):
+            print("states not equal")
+            lcd.clear()
+            lcd.setCursor(0,0)
+            lcd.message(state)
+            
         
 
 def destroy():
+    lcd.clear()
+    mcp.output(3,0)
     stream.stop_stream()
     stream.close()
     p.terminate()
+    shiftOut(dataPin,clockPin,MSBFIRST,0x00)
     if(inTimeout):
         print("should restore internet")
         turnInternet(True)
     print("should turn off lights")
-    shiftOut(dataPin,clockPin,MSBFIRST,0x00)
-    
     GPIO.cleanup()
+
+
+
+PCF8574_address = 0x27  # I2C address of the PCF8574 chip.
+PCF8574A_address = 0x3F  # I2C address of the PCF8574A chip.
+# Create PCF8574 GPIO adapter.
+try:
+    mcp = PCF8574_GPIO(PCF8574_address)
+except Exception as inst:
+    print("tried first")
+    print(inst)
+    try:
+        mcp = PCF8574_GPIO(PCF8574A_address)
+    except:
+        print ('I2C Address Error !')
+        exit(1)
+# Create LCD, passing in MCP GPIO adapter.
+lcd = Adafruit_CharLCD(pin_rs=0, pin_e=2, pins_db=[4,5,6,7], GPIO=mcp)
+
 
 if __name__ == '__main__':  # Program entrance
     print ('Program is starting...' )
     setup() 
 try:
-    #shiftOut(dataPin, clockPin, LSBFIRST, 3)
     loop()  
 except KeyboardInterrupt:   # Press ctrl-c to end the program.
     destroy()  
