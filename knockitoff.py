@@ -190,17 +190,21 @@ def loop():
         
 
 def destroy():
+    GPIO.output(latchPin,GPIO.LOW)  # Output low level to latchPin
+    shiftOut(dataPin,clockPin,LSBFIRST,0x00) # Send serial data to 74HC595
+    GPIO.output(latchPin,GPIO.HIGH)
     lcd.clear()
     mcp.output(3,0)
     stream.stop_stream()
     stream.close()
     p.terminate()
-    shiftOut(dataPin,clockPin,MSBFIRST,0x00)
+    GPIO.cleanup()
+
     if(inTimeout):
         print("should restore internet")
         turnInternet(True)
     print("should turn off lights")
-    GPIO.cleanup()
+
 
 
 
